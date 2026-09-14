@@ -1,0 +1,245 @@
+/* Point of sale styling: large targets and high contrast, for continuous use. */
+
+:root {
+  --color-brand: #d40f14;
+  --color-brand-dark: #a80b0f;
+  --color-surface: #ffffff;
+  --color-page: #f2f3f5;
+  --color-border: #d6d8dc;
+  --color-text: #1c1d1f;
+  --color-muted: #6b6f76;
+  --color-error: #b3261e;
+  --color-success: #1a7f37;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--color-page);
+  color: var(--color-text);
+}
+
+/* Sticky so the pay button never scrolls out of reach. */
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--color-brand);
+  color: #fff;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 20%);
+}
+
+.toolbar-identity {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.toolbar-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.toolbar-store {
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 0.1rem 0.5rem;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 18%);
+}
+
+.toolbar-register {
+  font-size: 0.95rem;
+  opacity: 0.9;
+}
+
+.pay-button {
+  padding: 0.7rem 2.5rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--color-brand-dark);
+  background: #ffd400;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pay-button:hover {
+  background: #ffdf40;
+}
+
+.pay-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.content {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+}
+
+.scan-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 1rem;
+  padding: 1.25rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
+}
+
+.field-quantity {
+  flex: 0 0 8rem;
+}
+
+.field label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.field input {
+  padding: 0.65rem 0.75rem;
+  font-size: 1.1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.field input:focus {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 1px;
+}
+
+.add-button {
+  padding: 0.7rem 1.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--color-brand);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.add-button:hover {
+  background: var(--color-brand-dark);
+}
+
+.message {
+  min-height: 1.5rem;
+  margin: 1rem 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.message.is-error {
+  color: var(--color-error);
+}
+
+.message.is-success {
+  color: var(--color-success);
+}
+
+.cart-table {
+  width: 100%;
+  margin-top: 0.5rem;
+  border-collapse: collapse;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cart-table th,
+.cart-table td {
+  padding: 0.7rem 0.9rem;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.cart-table th {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
+  background: #fafbfc;
+}
+
+.cart-table .numeric {
+  text-align: right;
+}
+
+.cart-table tr:last-child td {
+  border-bottom: none;
+}
+
+.empty-cart {
+  padding: 2rem;
+  text-align: center;
+  color: var(--color-muted);
+}
+
+.remove-button {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+  color: var(--color-error);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.remove-button:hover {
+  background: #fdecea;
+}
+
+.cart-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 1.5rem;
+  margin-top: 1rem;
+  padding: 1rem 1.25rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.cart-total-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.cart-total-value {
+  font-size: 1.9rem;
+  font-weight: 700;
+}
+
+@media (max-width: 40rem) {
+  .scan-form {
+    flex-wrap: wrap;
+  }
+
+  .field-quantity {
+    flex: 1 1 6rem;
+  }
+}

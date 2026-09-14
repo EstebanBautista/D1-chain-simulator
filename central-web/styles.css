@@ -1,0 +1,215 @@
+/* Head office dashboard styling.
+ *
+ * Deliberately the same visual language as the stores' point of sale: same
+ * brand colours, same surfaces, same type. This is the same chain, seen from
+ * a different desk.
+ */
+
+:root {
+  --color-brand: #d40f14;
+  --color-brand-dark: #a80b0f;
+  --color-surface: #ffffff;
+  --color-page: #f2f3f5;
+  --color-border: #d6d8dc;
+  --color-text: #1c1d1f;
+  --color-muted: #6b6f76;
+  --color-error: #b3261e;
+
+  /* One colour per store, reused between the two charts so a reader can carry
+     the association from one to the other. */
+  --color-store-1: #d40f14;
+  --color-store-2: #1f6feb;
+  --color-bar: #d40f14;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--color-page);
+  color: var(--color-text);
+}
+
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--color-brand);
+  color: #fff;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 20%);
+}
+
+.toolbar-identity {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.toolbar-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.toolbar-subtitle {
+  font-size: 0.95rem;
+  opacity: 0.9;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+/* Shows the reader that the page is live, and how fresh the figures are. */
+.toolbar-updated {
+  font-size: 0.85rem;
+  opacity: 0.9;
+  font-variant-numeric: tabular-nums;
+}
+
+.refresh-button {
+  padding: 0.6rem 1.6rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-brand-dark);
+  background: #ffd400;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.refresh-button:hover {
+  background: #ffdf40;
+}
+
+.content {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
+}
+
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 1.25rem 1.5rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.panel-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.panel-note {
+  margin: 0.35rem 0 1rem;
+  font-size: 0.9rem;
+  color: var(--color-muted);
+}
+
+.filter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filter label {
+  font-size: 0.9rem;
+  color: var(--color-muted);
+}
+
+.filter select {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.95rem;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--color-text);
+}
+
+.chart {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Bars and labels drawn by charts.js. */
+.bar {
+  fill: var(--color-bar);
+}
+
+.bar-store-1 {
+  fill: var(--color-store-1);
+}
+
+.bar-store-2 {
+  fill: var(--color-store-2);
+}
+
+.bar-label {
+  font-size: 13px;
+  fill: var(--color-text);
+}
+
+.bar-value {
+  font-size: 13px;
+  font-weight: 700;
+  fill: var(--color-text);
+}
+
+.bar-sublabel {
+  font-size: 11px;
+  fill: var(--color-muted);
+}
+
+.axis-line {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+/* Shown instead of a chart when there is nothing to draw. An empty box reads
+   as a broken deployment; a sentence does not. */
+.chart-empty {
+  padding: 2rem 0;
+  text-align: center;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}
+
+.message {
+  min-height: 1.4rem;
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+}
+
+.message.is-error {
+  color: var(--color-error);
+  font-weight: 600;
+}
+
+.message.is-info {
+  color: var(--color-muted);
+}

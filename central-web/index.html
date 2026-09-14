@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<!--
+  Head office dashboard.
+
+  Identifiers, classes and code are in English. Everything a reader sees is in
+  Spanish, like the stores' web site.
+
+  No framework and no charting library: the charts are SVG built by hand in
+  charts.js, and every asset is served from this container. Vendoring a
+  minified chart library would obey the letter of "no frameworks" while
+  defeating its purpose: you would be reading someone else's chart
+  configuration instead of reading this.
+-->
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Central de ventas - Cadena D1</title>
+    <!-- Empty data URI: stops the browser asking for /favicon.ico and
+         logging a 404 that looks like a real error in the console. -->
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="toolbar-identity">
+        <span class="toolbar-title">Cadena D1</span>
+        <span class="toolbar-subtitle">Central de ventas</span>
+      </div>
+      <div class="toolbar-actions">
+        <!-- Filled by app.js on every successful load. Without it there is no
+             way to tell a live dashboard from one frozen since you opened it. -->
+        <span class="toolbar-updated" id="updated-label"></span>
+        <button type="button" id="refresh-button" class="refresh-button">
+          Actualizar
+        </button>
+      </div>
+    </header>
+
+    <main class="content">
+      <p id="message" class="message" role="status" aria-live="polite"></p>
+
+      <section class="panel">
+        <h2 class="panel-title">Ventas totales por tienda</h2>
+        <p class="panel-note">Valores en pesos colombianos (COP).</p>
+        <div id="sales-chart" class="chart"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Top 10 de productos más vendidos</h2>
+          <div class="filter">
+            <label for="store-filter">Tienda</label>
+            <!--
+              Options are filled from the API, never hardcoded here: adding a
+              store at head office must not require editing this page.
+            -->
+            <select id="store-filter">
+              <option value="">Todas las tiendas</option>
+            </select>
+          </div>
+        </div>
+        <p class="panel-note">Ordenado por unidades vendidas.</p>
+        <div id="products-chart" class="chart"></div>
+      </section>
+    </main>
+
+    <script src="charts.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

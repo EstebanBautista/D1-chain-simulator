@@ -1,0 +1,497 @@
+# D1 chain simulator — two stores and a central site.
+#
+# Sixteen containers on four networks. Unlike fase 1, which put everything on
+# one flat network so nothing could go wrong, this phase segments deliberately:
+# a register cannot reach the internet, cannot reach the payment gateway, and
+# cannot reach the other store. Those failures are the exercise.
+#
+# Read the `networks:` block at the bottom first, then each service's
+# `networks:` list. Every membership below is defensible in one sentence, and
+# the README carries a table of what can reach what.
+
+name: d1-chain-simulator
+
+services:
+  # ======================================================================
+  # STORE 1
+  # ======================================================================
+  # Both stores build from the SAME directories. They differ only by name,
+  # network, volume, environment and published port — which is the point: one
+  # chain running one piece of software in two places.
+
+  store-1-postgres:
+    image: postgres:16-alpine
+    container_name: store-1-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-store}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-store_password}
+      POSTGRES_DB: ${POSTGRES_DB:-store}
+    ports:
+      # Published so you can inspect this store's database from your own
+      # machine. Fine for a local practice environment; not something to carry
+      # anywhere else.
+      - "${STORE_1_POSTGRES_HOST_PORT:-55432}:5432"
+    volumes:
+      - store-1-data:/var/lib/postgresql/data
+      # These scripts run only when the volume is empty, which is why
+      # `make down` wipes volumes: recreating must be predictable.
+      - ./db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-store} -d ${POSTGRES_DB:-store}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      # Store 1's LAN only. The database is never reachable from outside the
+      # store — not from head office, not from the other store, not from the
+      # gateway. It is published to the host for inspection, which is a
+      # different thing from being on another container's network.
+      - store-1-net
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 8G
+
+  store-1-backend:
+    build: ./backend
+    container_name: store-1-backend
+    environment:
+      STORE_ID: store-1
+      STORE_NAME: ${STORE_1_NAME:-Tienda 1 - Chapinero}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-store}:${POSTGRES_PASSWORD:-store_password}@store-1-postgres:5432/${POSTGRES_DB:-store}
+      PAYMENT_GATEWAY_URL: http://payment-gateway:5000
+      PAYMENT_GATEWAY_TIMEOUT_SECONDS: ${PAYMENT_GATEWAY_TIMEOUT_SECONDS:-5}
+    ports:
+      - "${STORE_1_BACKEND_HOST_PORT:-18000}:8000"
+    depends_on:
+      store-1-postgres:
+        # Wait until PostgreSQL actually accepts connections, not merely until
+        # its container started.
+        condition: service_healthy
+    networks:
+      # Its own store's LAN, plus the simulated internet — because charging a
+      # card is the one thing that has to leave the store. The backend is the
+      # store's ONLY payment egress.
+      - store-1-net
+      - wan-net
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 8G
+
+  store-1-frontend:
+    build: ./frontend
+    container_name: store-1-frontend
+    environment:
+      # Which backend to proxy /api to. The nginx image renders this into its
+      # configuration at start, so the same image serves both stores and no
+      # store's hostname is baked into the frontend source.
+      BACKEND_UPSTREAM: store-1-backend:8000
+      # Restrict substitution to that one variable, so nginx's own $$host and
+      # $$remote_addr survive untouched.
+      NGINX_ENVSUBST_FILTER: "^BACKEND_UPSTREAM$$"
+    # Deliberately NOT published to the host. The only way to the web site is
+    # through one of this store's registers, the same way a cashier gets to it
+    # in a real store.
+    expose:
+      - "80"
+    depends_on:
+      - store-1-backend
+    networks:
+      # Store 1's LAN only. It proxies /api to store-1-backend, which is on the
+      # same network.
+      - store-1-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+  store-1-register-1:
+    build: ./register
+    container_name: store-1-register-1
+    environment:
+      STORE_ID: store-1
+      STORE_NAME: ${STORE_1_NAME:-Tienda 1 - Chapinero}
+      REGISTER_ID: store-1-register-1
+      # Which web server to proxy to. Read from the environment so no store's
+      # hostname is written into the register's nginx configuration.
+      FRONTEND_URL: http://store-1-frontend:80
+      BACKEND_URL: http://store-1-backend:8000
+      # Named so the integration test can assert it CANNOT reach them.
+      PAYMENT_GATEWAY_URL: http://payment-gateway:5000
+      CENTRAL_API_URL: http://central-api:8000
+      OTHER_STORE_BACKEND_URL: http://store-2-backend:8000
+      DECLINE_THRESHOLD: ${DECLINE_THRESHOLD:-1000000}
+    ports:
+      # Store 1, register 1's screen. Open it to use the store's web site.
+      - "${STORE_1_REGISTER_1_HOST_PORT:-8081}:80"
+    depends_on:
+      - store-1-backend
+      - store-1-frontend
+    networks:
+      # Store 1's LAN and NOTHING else. No payment gateway, no head office, no
+      # other store — none of those names will even resolve from here.
+      - store-1-net
+    deploy:
+      resources:
+        limits:
+          # A modest but complete machine: enough to run a client and, later,
+          # a small local database.
+          cpus: "1.0"
+          memory: 4G
+
+  store-1-register-2:
+    build: ./register
+    container_name: store-1-register-2
+    environment:
+      STORE_ID: store-1
+      STORE_NAME: ${STORE_1_NAME:-Tienda 1 - Chapinero}
+      REGISTER_ID: store-1-register-2
+      FRONTEND_URL: http://store-1-frontend:80
+      BACKEND_URL: http://store-1-backend:8000
+      PAYMENT_GATEWAY_URL: http://payment-gateway:5000
+      CENTRAL_API_URL: http://central-api:8000
+      OTHER_STORE_BACKEND_URL: http://store-2-backend:8000
+      DECLINE_THRESHOLD: ${DECLINE_THRESHOLD:-1000000}
+    ports:
+      - "${STORE_1_REGISTER_2_HOST_PORT:-8082}:80"
+    depends_on:
+      - store-1-backend
+      - store-1-frontend
+    networks:
+      - store-1-net
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 4G
+
+  store-1-sync:
+    build: ./sync
+    container_name: store-1-sync
+    environment:
+      STORE_ID: store-1
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-store}:${POSTGRES_PASSWORD:-store_password}@store-1-postgres:5432/${POSTGRES_DB:-store}
+      CENTRAL_API_URL: http://central-api:8000
+      BATCH_SIZE: ${BATCH_SIZE:-10}
+      BATCH_MAX_AGE_SECONDS: ${BATCH_MAX_AGE_SECONDS:-60}
+      SYNC_POLL_SECONDS: ${SYNC_POLL_SECONDS:-5}
+    depends_on:
+      store-1-postgres:
+        condition: service_healthy
+    networks:
+      # Its own store's LAN, to read the queue, plus the simulated internet, to
+      # reach head office. The forwarder is the store's ONLY data egress.
+      - store-1-net
+      - wan-net
+    deploy:
+      resources:
+        limits:
+          # A small worker: it polls a table and posts JSON.
+          cpus: "0.5"
+          memory: 512M
+
+  # ======================================================================
+  # STORE 2
+  # ======================================================================
+  # Identical to store 1 except for its name, network, volume, identity and
+  # ports. If you find another difference, it is a bug.
+
+  store-2-postgres:
+    image: postgres:16-alpine
+    container_name: store-2-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-store}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-store_password}
+      POSTGRES_DB: ${POSTGRES_DB:-store}
+    ports:
+      - "${STORE_2_POSTGRES_HOST_PORT:-55433}:5432"
+    volumes:
+      - store-2-data:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-store} -d ${POSTGRES_DB:-store}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - store-2-net
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 8G
+
+  store-2-backend:
+    build: ./backend
+    container_name: store-2-backend
+    environment:
+      STORE_ID: store-2
+      STORE_NAME: ${STORE_2_NAME:-Tienda 2 - Kennedy}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-store}:${POSTGRES_PASSWORD:-store_password}@store-2-postgres:5432/${POSTGRES_DB:-store}
+      PAYMENT_GATEWAY_URL: http://payment-gateway:5000
+      PAYMENT_GATEWAY_TIMEOUT_SECONDS: ${PAYMENT_GATEWAY_TIMEOUT_SECONDS:-5}
+    ports:
+      - "${STORE_2_BACKEND_HOST_PORT:-18001}:8000"
+    depends_on:
+      store-2-postgres:
+        condition: service_healthy
+    networks:
+      - store-2-net
+      - wan-net
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 8G
+
+  store-2-frontend:
+    build: ./frontend
+    container_name: store-2-frontend
+    environment:
+      # Which backend to proxy /api to. The nginx image renders this into its
+      # configuration at start, so the same image serves both stores and no
+      # store's hostname is baked into the frontend source.
+      BACKEND_UPSTREAM: store-2-backend:8000
+      # Restrict substitution to that one variable, so nginx's own $$host and
+      # $$remote_addr survive untouched.
+      NGINX_ENVSUBST_FILTER: "^BACKEND_UPSTREAM$$"
+    expose:
+      - "80"
+    depends_on:
+      - store-2-backend
+    networks:
+      - store-2-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+  store-2-register-1:
+    build: ./register
+    container_name: store-2-register-1
+    environment:
+      STORE_ID: store-2
+      STORE_NAME: ${STORE_2_NAME:-Tienda 2 - Kennedy}
+      REGISTER_ID: store-2-register-1
+      FRONTEND_URL: http://store-2-frontend:80
+      BACKEND_URL: http://store-2-backend:8000
+      PAYMENT_GATEWAY_URL: http://payment-gateway:5000
+      CENTRAL_API_URL: http://central-api:8000
+      OTHER_STORE_BACKEND_URL: http://store-1-backend:8000
+      DECLINE_THRESHOLD: ${DECLINE_THRESHOLD:-1000000}
+    ports:
+      - "${STORE_2_REGISTER_1_HOST_PORT:-8083}:80"
+    depends_on:
+      - store-2-backend
+      - store-2-frontend
+    networks:
+      - store-2-net
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 4G
+
+  store-2-register-2:
+    build: ./register
+    container_name: store-2-register-2
+    environment:
+      STORE_ID: store-2
+      STORE_NAME: ${STORE_2_NAME:-Tienda 2 - Kennedy}
+      REGISTER_ID: store-2-register-2
+      FRONTEND_URL: http://store-2-frontend:80
+      BACKEND_URL: http://store-2-backend:8000
+      PAYMENT_GATEWAY_URL: http://payment-gateway:5000
+      CENTRAL_API_URL: http://central-api:8000
+      OTHER_STORE_BACKEND_URL: http://store-1-backend:8000
+      DECLINE_THRESHOLD: ${DECLINE_THRESHOLD:-1000000}
+    ports:
+      - "${STORE_2_REGISTER_2_HOST_PORT:-8084}:80"
+    depends_on:
+      - store-2-backend
+      - store-2-frontend
+    networks:
+      - store-2-net
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 4G
+
+  store-2-sync:
+    build: ./sync
+    container_name: store-2-sync
+    environment:
+      STORE_ID: store-2
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-store}:${POSTGRES_PASSWORD:-store_password}@store-2-postgres:5432/${POSTGRES_DB:-store}
+      CENTRAL_API_URL: http://central-api:8000
+      BATCH_SIZE: ${BATCH_SIZE:-10}
+      BATCH_MAX_AGE_SECONDS: ${BATCH_MAX_AGE_SECONDS:-60}
+      SYNC_POLL_SECONDS: ${SYNC_POLL_SECONDS:-5}
+    depends_on:
+      store-2-postgres:
+        condition: service_healthy
+    networks:
+      - store-2-net
+      - wan-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+  # ======================================================================
+  # CENTRAL SITE (head office)
+  # ======================================================================
+
+  central-mysql:
+    # Pinned to a minor version rather than the moving `mysql:8` tag, which
+    # now resolves to 8.4 and dropped options that 8.0 accepted. A rebuild
+    # months from now should produce the same database.
+    image: mysql:8.4
+    container_name: central-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${CENTRAL_MYSQL_ROOT_PASSWORD:-central_root_password}
+      MYSQL_DATABASE: ${CENTRAL_MYSQL_DATABASE:-central}
+      MYSQL_USER: ${CENTRAL_MYSQL_USER:-central}
+      MYSQL_PASSWORD: ${CENTRAL_MYSQL_PASSWORD:-central_password}
+    ports:
+      # 33306 rather than 3306: 3306 is as commonly occupied on a developer
+      # machine as 5432, and a first `make up` that dies on a port collision
+      # reads as a broken exercise.
+      - "${CENTRAL_MYSQL_HOST_PORT:-33306}:3306"
+    volumes:
+      - central-data:/var/lib/mysql
+      - ./central-db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      # Head office's LAN only. No store can reach the consolidated database
+      # directly; the API is the only way in.
+      - central-net
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
+
+  central-api:
+    build: ./central-api
+    container_name: central-api
+    environment:
+      CENTRAL_DATABASE_URL: mysql+pymysql://${CENTRAL_MYSQL_USER:-central}:${CENTRAL_MYSQL_PASSWORD:-central_password}@central-mysql:3306/${CENTRAL_MYSQL_DATABASE:-central}
+      TOP_PRODUCTS_LIMIT: ${TOP_PRODUCTS_LIMIT:-10}
+    ports:
+      - "${CENTRAL_API_HOST_PORT:-18100}:8000"
+    depends_on:
+      central-mysql:
+        condition: service_healthy
+    networks:
+      # Head office's LAN, plus the simulated internet so the stores' forwarders
+      # can reach it. It is the ONLY way into the central site from outside.
+      - central-net
+      - wan-net
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+
+  central-web:
+    build: ./central-web
+    container_name: central-web
+    ports:
+      # The dashboard. Unlike the stores' sites, this one IS published
+      # directly: head office has no registers to walk up to.
+      - "${CENTRAL_WEB_HOST_PORT:-8080}:80"
+    depends_on:
+      - central-api
+    networks:
+      # Head office's LAN only. It proxies /api to central-api, which is on the
+      # same network. No store can reach the dashboard.
+      - central-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+  # ======================================================================
+  # EXTERNAL SERVICE
+  # ======================================================================
+
+  payment-gateway:
+    build: ./payment-gateway
+    container_name: payment-gateway
+    environment:
+      DECLINE_THRESHOLD: ${DECLINE_THRESHOLD:-1000000}
+      GATEWAY_DATABASE_URL: ${GATEWAY_DATABASE_URL:-sqlite:////data/gateway.db}
+    volumes:
+      # Its own store, separate from both stores' PostgreSQL and from head
+      # office's MySQL: in the story this is a different company.
+      - gateway-data:/data
+    networks:
+      # The simulated internet ONLY. It belongs to no store and to no head
+      # office, which is what finally makes it credible as a third party —
+      # something fase 1's single flat network could not claim.
+      - wan-net
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
+networks:
+  # Each site gets its own bridge. Isolation BETWEEN sites comes from that
+  # separation: a container on store-1-net has no route to store-2-net, to
+  # central-net, or to the payment gateway on wan-net, and Docker's DNS will
+  # not even resolve those names for it. That is real and you can verify it
+  # from a shell in any register.
+  #
+  # These are deliberately NOT marked `internal: true`, even though sealing
+  # them would also cut internet access. Docker refuses to publish a host port
+  # for a container attached only to internal networks — it accepts the
+  # `ports:` entry and then silently creates no mapping — and the registers
+  # MUST be reachable from the browser, since going through a register is the
+  # only way into a store's web site. Reachable registers won, and the cost is
+  # that containers here keep internet egress, exactly as they did in fase 1.
+  store-1-net:
+    driver: bridge
+
+  store-2-net:
+    driver: bridge
+
+  # Head office's LAN, on the same terms and for the same reason: the
+  # dashboard has to be reachable from the browser.
+  central-net:
+    driver: bridge
+
+  # The simulated internet: the only place two sites can meet. Exactly six
+  # services attach to it: the two store
+  # backends (to charge cards), the two forwarders (to ship sales), the central
+  # API (to receive them) and the payment gateway (which lives nowhere else).
+  #
+  # Note this is a shared internet, not a private link: store 1's forwarder
+  # CAN reach store 2's backend across it. That is realistic — they are both on
+  # the internet — and in a real deployment TLS and authentication, not
+  # topology, would be what keeps them apart.
+  wan-net:
+    driver: bridge
+
+volumes:
+  # One volume per store: the two stores never share data.
+  store-1-data:
+  store-2-data:
+  central-data:
+  gateway-data:

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<!--
+  Point of sale web site.
+
+  Identifiers, classes and code are in English. Everything the cashier reads is
+  in Spanish: the users are cashiers in Colombia.
+-->
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Caja registradora - Tienda D1</title>
+    <!-- Empty data URI: stops the browser asking for /favicon.ico and
+         logging a 404 that looks like a real error in the console. -->
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- Pinned to the top so it stays reachable however long the cart gets. -->
+    <header class="toolbar">
+      <div class="toolbar-identity">
+        <span class="toolbar-title">Tienda D1</span>
+        <!-- Both filled from register-config.js, served by the register that
+             served this page. -->
+        <span class="toolbar-store" id="store-label"></span>
+        <span class="toolbar-register" id="register-label"></span>
+      </div>
+      <button type="button" id="pay-button" class="pay-button">Pagar</button>
+    </header>
+
+    <main class="content">
+      <form id="scan-form" class="scan-form" autocomplete="off">
+        <div class="field">
+          <label for="ean-input">Código de barras</label>
+          <input
+            type="text"
+            id="ean-input"
+            name="ean"
+            inputmode="numeric"
+            placeholder="Escanee o digite el código"
+            required
+            autofocus
+          />
+        </div>
+        <div class="field field-quantity">
+          <label for="quantity-input">Cantidad</label>
+          <input
+            type="number"
+            id="quantity-input"
+            name="quantity"
+            value="1"
+            min="1"
+            step="1"
+            required
+          />
+        </div>
+        <button type="submit" class="add-button">Agregar</button>
+      </form>
+
+      <p id="message" class="message" role="status" aria-live="polite"></p>
+
+      <table class="cart-table">
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th class="numeric">Cantidad</th>
+            <th class="numeric">Valor unitario</th>
+            <th class="numeric">Subtotal</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="cart-body">
+          <tr id="empty-row">
+            <td colspan="5" class="empty-cart">La compra está vacía</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- The total lives at the end of the list, as the cashier expects. -->
+      <div class="cart-total">
+        <span class="cart-total-label">Total de la compra</span>
+        <span class="cart-total-value" id="cart-total">$ 0</span>
+      </div>
+    </main>
+
+    <!--
+      Served by the register you came through, not by this container. It sets
+      window.REGISTER_ID, so the site knows which register it is running on.
+      Reaching the site any other way leaves it undefined, and the page says so.
+    -->
+    <script src="register-config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

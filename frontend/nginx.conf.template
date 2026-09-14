@@ -1,0 +1,33 @@
+# This file is a TEMPLATE. The official nginx image renders ${BACKEND_UPSTREAM}
+# from the environment at container start (see its
+# /docker-entrypoint.d/20-envsubst-on-templates.sh), so the same image serves
+# both stores and neither store's backend hostname is written into the source.
+#
+# NGINX_ENVSUBST_FILTER in docker-compose.yml restricts substitution to that one
+# variable, so nginx's own $host and $remote_addr are left alone.
+
+server {
+    listen       80;
+    server_name  localhost;
+
+    root   /usr/share/nginx/html;
+    index  index.html;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # The site calls ITS OWN STORE's backend through this path rather than
+    # through the backend's published port. That keeps the browser on a single origin and,
+    # more usefully, means the frontend does not care which host port the
+    # backend happens to be published on.
+    #
+    # The trailing slash on proxy_pass strips the /api prefix, so a request for
+    # /api/products/770... reaches the backend as /products/770...
+    location /api/ {
+        proxy_pass http://${BACKEND_UPSTREAM}/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}

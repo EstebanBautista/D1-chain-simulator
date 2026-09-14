@@ -1,0 +1,36 @@
+# The register is the way into its store's web site.
+#
+# Neither store's frontend container publishes a host port: the only way a
+# browser reaches a store's site is by going through one of that store's
+# registers, which is what a cashier does in a real store. Open
+# http://localhost:8081 and you are on store 1, register 1.
+#
+# This file is a TEMPLATE. entrypoint.sh renders __FRONTEND_UPSTREAM__ from the
+# FRONTEND_URL environment variable at container start, so the same image
+# serves both stores and no store's hostname is written into the source.
+
+server {
+    listen       80;
+    server_name  localhost;
+
+    # Written at container start by entrypoint.sh from this register's
+    # environment. This is what tells the site which store and which register
+    # it is running on: the identity comes from the machine you walked up to,
+    # not from anything the browser chose.
+    location = /register-config.js {
+        root /usr/share/nginx/html;
+        default_type application/javascript;
+        add_header Cache-Control "no-store";
+    }
+
+    # Everything else — the site itself and its /api calls — is passed through
+    # to this store's web server, which in turn proxies /api to this store's
+    # backend. The chain browser -> register -> frontend -> backend -> database
+    # is one hop per container, and you can inspect any of them.
+    location / {
+        proxy_pass http://__FRONTEND_UPSTREAM__;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
