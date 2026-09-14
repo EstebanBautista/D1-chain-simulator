@@ -44,11 +44,14 @@ class BatchRequest(BaseModel):
 
 
 class BatchResponse(BaseModel):
-    """What head office now holds, as a result of this batch.
+    """How head office answered one batch.
 
-    `accepted` and `duplicates` carry the store's own invoice numbers, so the
-    forwarder knows exactly which of its rows to stamp. Both count as
-    delivered: an invoice we already hold does not need sending again.
+    Since ingestion is asynchronous, `accepted` lists the batch's OWN invoice
+    numbers — head office now holds them in its durable queue, which is what
+    the store's forwarder needs in order to release them. Whether the worker
+    later finds any of them already in MySQL is decided by the UNIQUE
+    constraint, so it is not reported here. Both lists still exist because the
+    forwarder treats both as delivered.
     """
 
     store_id: str

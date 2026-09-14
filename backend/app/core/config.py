@@ -22,6 +22,18 @@ DATABASE_URL: str = os.getenv(
     "postgresql+psycopg://store:store_password@postgres:5432/store",
 )
 
+# Where this store's catalog cache lives. Each store gets its own instance, on
+# its own LAN, because the two stores share nothing — a cache is data too.
+REDIS_URL: str = os.getenv(
+    "REDIS_URL",
+    "redis://store-redis:6379/0",
+)
+
+# How long a cached product {ean, name, price} is trusted before the catalog
+# is read from PostgreSQL again. Ten minutes would hide a price change for
+# ten minutes; five is a compromise a school catalog can live with.
+PRODUCT_CACHE_TTL_SECONDS: int = int(os.getenv("PRODUCT_CACHE_TTL_SECONDS", "300"))
+
 PAYMENT_GATEWAY_URL: str = os.getenv(
     "PAYMENT_GATEWAY_URL", "http://payment-gateway:5000"
 )

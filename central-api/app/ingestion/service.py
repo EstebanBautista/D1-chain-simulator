@@ -12,7 +12,7 @@ from typing import NamedTuple
 
 from sqlalchemy.orm import Session
 
-from app.ingestion import repository
+from app.ingestion import broker, repository
 from app.ingestion.repository import DuplicateInvoiceError
 from app.ingestion.schemas import BatchRequest
 from app.stores import service as stores_service
@@ -76,6 +76,10 @@ def ingest_batch(
     response was lost is the normal case this whole design exists for, and
     answering it with an error would leave those invoices stuck in the store's
     queue forever.
+
+    This is what the ingestion worker calls. It is deliberately unchanged by
+    the move to the queue: who executes the insert changed, not the rule for
+    how an insert behaves.
     """
     stores_service.require_store(session, batch.store_id)
     validate_batch(batch)
@@ -107,3 +111,28 @@ def ingest_batch(
     )
 
     return IngestionResult(accepted=accepted, duplicates=duplicates)
+
+
+def enqueue_batch(
+    batch: BatchRequest,
+    publisher=broker,
+) -> IngestionResult:
+    """Validate a batch and hand it to the queue for the worker to persist.
+
+    Validation still runs HERE, in the request, so a malformed batch is
+    rejected before it reaches the queue. Publishing is synchronous and
+    confirmed: unless the queue took the whole batch, `BrokerUnavailableError`
+    is raised and the store's forwarder will retry the batch later.
+
+    `accepted` carries every invoice in the batch: from this process's point of
+    view head office now owns them, in a durable queue. Whether any of them
+    later turn out to be already held is decided by the worker against the
+    UNIQUE constraint, not here — the request cannot know.
+    """
+    validate_batch(batch)
+    publisher.publish_batch(batch)
+
+    return IngestionResult(
+        accepted=[invoice.store_invoice_id for invoice in batch.invoices],
+        duplicates=[],
+    )

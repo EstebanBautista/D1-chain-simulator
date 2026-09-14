@@ -10,6 +10,7 @@ they do not define it.
 """
 
 from collections.abc import Iterator
+from contextlib import contextmanager
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -33,6 +34,20 @@ SessionLocal = sessionmaker(
 
 def get_session() -> Iterator[Session]:
     """Yield a session per request and always close it."""
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+@contextmanager
+def session_scope() -> Iterator[Session]:
+    """Yield a session for one unit of work and always close it.
+
+    Used by the ingestion worker, which — like the stores' forwarder — has no
+    HTTP surface and therefore no framework to inject sessions for it.
+    """
     session = SessionLocal()
     try:
         yield session

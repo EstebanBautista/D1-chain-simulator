@@ -186,3 +186,35 @@ def test_amounts_survive_as_exact_decimals(session):
 
     stored = repository.find_invoice(session, "store-1", 1)
     assert Decimal(stored.items[0].subtotal) == Decimal("5999.97")
+
+
+# --- Enqueue (async path) ------------------------------------------------
+
+
+class FakePublisher:
+    """Stand-in for the broker; records what would have been published."""
+
+    def __init__(self) -> None:
+        self.published: list = []
+
+    def publish_batch(self, batch) -> None:
+        self.published.append(batch)
+
+
+def test_enqueue_batch_publishes_and_reports_every_invoice(session):
+    publisher = FakePublisher()
+
+    result = service.enqueue_batch(make_batch(), publisher=publisher)
+
+    assert result.accepted == [1]
+    assert result.duplicates == []
+    assert len(publisher.published) == 1
+
+
+def test_enqueue_batch_validates_before_publishing(session):
+    publisher = FakePublisher()
+
+    with pytest.raises(service.InvalidBatchError):
+        service.enqueue_batch(make_batch(invoices=[]), publisher=publisher)
+
+    assert publisher.published == []

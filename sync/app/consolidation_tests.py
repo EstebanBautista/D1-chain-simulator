@@ -110,6 +110,27 @@ def central_report() -> dict[str, dict]:
     return {row["store_id"]: row for row in response.json()}
 
 
+def wait_for_report(timeout_seconds: float, predicate) -> bool:
+    """Wait until the head office report satisfies `predicate`, or time out.
+
+    Ingestion is asynchronous: the forwarder releases a batch as soon as the
+    queue accepts it, and the worker writes it into MySQL a moment later. Every
+    assertion against the consolidated report therefore polls until the
+    expected delta appears rather than reading once.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            current = central_report()
+        except Exception:
+            time.sleep(2)
+            continue
+        if predicate(current):
+            return True
+        time.sleep(2)
+    return predicate(central_report())
+
+
 def quiesce() -> None:
     """Wait until nothing is in flight anywhere, then let the tests measure.
 
@@ -181,12 +202,19 @@ def test_end_to_end_consolidation() -> None:
     if not drained:
         return
 
-    after = central_report()
+    arrived = wait_for_report(
+        AGE_TRIGGER_WAIT,
+        lambda report: int(report[STORE_ID]["invoice_count"]) == before_count + 1,
+    )
     check(
         "Head office holds one more invoice for this store",
-        int(after[STORE_ID]["invoice_count"]) == before_count + 1,
-        f"Was {before_count}, now {after[STORE_ID]['invoice_count']}",
+        arrived,
+        f"Was {before_count}, the worker has not written it yet or wrote twice",
     )
+    if not arrived:
+        return
+
+    after = central_report()
     check(
         "The consolidated total grew by exactly what was charged",
         Decimal(str(after[STORE_ID]["total"])) == before_total + charged,
@@ -225,11 +253,14 @@ def test_count_trigger() -> None:
     if not drained:
         return
 
-    after = central_report()
+    arrived = wait_for_report(
+        budget,
+        lambda report: int(report[STORE_ID]["invoice_count"]) == before_count + BATCH_SIZE,
+    )
     check(
         "Head office holds all ten",
-        int(after[STORE_ID]["invoice_count"]) == before_count + BATCH_SIZE,
-        f"Was {before_count}, now {after[STORE_ID]['invoice_count']}",
+        arrived,
+        f"Was {before_count}, the worker has not written them yet",
     )
 
 
@@ -312,25 +343,31 @@ def test_resending_a_batch_changes_nothing() -> None:
         check("There is a forwarded sale to resend", False, "None found")
         return
 
+    def invoice(store_invoice_id: int) -> dict:
+        return {
+            "store_invoice_id": store_invoice_id,
+            "register_id": row.register_id,
+            "sold_at": row.sale_date.isoformat(),
+            "total": str(Decimal(row.total)),
+            "items": [
+                {
+                    "ean": row.ean,
+                    "product_name": row.product_name,
+                    "quantity": int(row.quantity),
+                    "unit_price": str(Decimal(row.unit_price)),
+                    "subtotal": str(Decimal(row.subtotal)),
+                }
+            ],
+        }
+
+    # Resend the already-held invoice AND one new one in the same batch. The
+    # first must be absorbed by the UNIQUE constraint at the worker's insert;
+    # only the second may change the report. The far-out id guarantees head
+    # office does not already hold the fresh invoice.
+    fresh_id = 1_000_000_000
     payload = {
         "store_id": STORE_ID,
-        "invoices": [
-            {
-                "store_invoice_id": row.sale_id,
-                "register_id": row.register_id,
-                "sold_at": row.sale_date.isoformat(),
-                "total": str(Decimal(row.total)),
-                "items": [
-                    {
-                        "ean": row.ean,
-                        "product_name": row.product_name,
-                        "quantity": int(row.quantity),
-                        "unit_price": str(Decimal(row.unit_price)),
-                        "subtotal": str(Decimal(row.subtotal)),
-                    }
-                ],
-            }
-        ],
+        "invoices": [invoice(row.sale_id), invoice(fresh_id)],
     }
 
     response = httpx.post(
@@ -340,29 +377,32 @@ def test_resending_a_batch_changes_nothing() -> None:
     )
     ok = check(
         "The resent batch is accepted, not rejected",
-        response.status_code == 200,
+        response.status_code in (200, 202),
         f"Got HTTP {response.status_code}: {response.text}",
     )
     if not ok:
         return
 
-    result = response.json()
-    check(
-        "Head office reports it as a duplicate, not as new",
-        result.get("duplicate_count") == 1 and result.get("accepted_count") == 0,
-        f"Payload: {result}",
+    # Async ingestion means the request cannot name which invoices were
+    # duplicates; the guarantee that matters lives in the data. Exactly one of
+    # the two invoices — the fresh one — may land.
+    arrived = wait_for_report(
+        AGE_TRIGGER_WAIT,
+        lambda report: int(report[STORE_ID]["invoice_count"]) == before_count + 1,
     )
+    check(
+        "The duplicate does not inflate the invoice count",
+        arrived,
+        f"Expected {before_count + 1}: a double insert or a slow worker",
+    )
+    if not arrived:
+        return
 
     after = central_report()
     check(
-        "The invoice count is unchanged",
-        int(after[STORE_ID]["invoice_count"]) == before_count,
-        f"Was {before_count}, now {after[STORE_ID]['invoice_count']}",
-    )
-    check(
-        "The reported total is unchanged",
-        Decimal(str(after[STORE_ID]["total"])) == before_total,
-        f"Was {before_total}, now {after[STORE_ID]['total']}",
+        "The reported total grew by exactly the new invoice",
+        Decimal(str(after[STORE_ID]["total"])) == before_total + Decimal(str(row.total)),
+        f"Was {before_total}, now {after[STORE_ID]['total']}, resent {row.total}",
     )
 
 

@@ -104,8 +104,18 @@ else
           "Sales are still queued after two minutes"
 fi
 
-after_central=$(run_in_sync central-count "$STORE" | tr -d '\r')
+# Ingestion is asynchronous now: the forwarder releases a batch as soon as the
+# queue accepts it, and the worker writes it into MySQL a beat later. Poll the
+# central count until it reaches the expected figure instead of reading once.
 expected=$((before_central + SALES_WHILE_DOWN))
+after_central=""
+for _ in $(seq 1 60); do
+    after_central=$(run_in_sync central-count "$STORE" 2>/dev/null | tr -d '\r')
+    if [ -n "$after_central" ] && [ "$after_central" -ge "$expected" ]; then
+        break
+    fi
+    sleep 2
+done
 
 if [ "$after_central" -eq "$expected" ]; then
     check "Every queued sale arrived exactly once" true

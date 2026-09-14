@@ -1,6 +1,6 @@
 # D1 chain simulator — two stores and a central site.
 #
-# Sixteen containers on four networks. Unlike fase 1, which put everything on
+# Twenty containers on four networks. Unlike fase 1, which put everything on
 # one flat network so nothing could go wrong, this phase segments deliberately:
 # a register cannot reach the internet, cannot reach the payment gateway, and
 # cannot reach the other store. Those failures are the exercise.
@@ -54,6 +54,29 @@ services:
           cpus: "2.0"
           memory: 8G
 
+  store-1-redis:
+    image: redis:7-alpine
+    container_name: store-1-redis
+    # The catalog cache for this store. One instance per store, on that store's
+    # LAN only: a cache is data too, and the two stores share nothing. The
+    # backend answers /products/{ean} from here without touching PostgreSQL.
+    ports:
+      # Published so you can peek at the cached keys from your own machine.
+      - "${STORE_1_REDIS_HOST_PORT:-56379}:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - store-1-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
   store-1-backend:
     build: ./backend
     container_name: store-1-backend
@@ -61,6 +84,7 @@ services:
       STORE_ID: store-1
       STORE_NAME: ${STORE_1_NAME:-Tienda 1 - Chapinero}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-store}:${POSTGRES_PASSWORD:-store_password}@store-1-postgres:5432/${POSTGRES_DB:-store}
+      REDIS_URL: redis://store-1-redis:6379/0
       PAYMENT_GATEWAY_URL: http://payment-gateway:5000
       PAYMENT_GATEWAY_TIMEOUT_SECONDS: ${PAYMENT_GATEWAY_TIMEOUT_SECONDS:-5}
     ports:
@@ -69,6 +93,8 @@ services:
       store-1-postgres:
         # Wait until PostgreSQL actually accepts connections, not merely until
         # its container started.
+        condition: service_healthy
+      store-1-redis:
         condition: service_healthy
     networks:
       # Its own store's LAN, plus the simulated internet — because charging a
@@ -227,6 +253,27 @@ services:
           cpus: "2.0"
           memory: 8G
 
+  store-2-redis:
+    image: redis:7-alpine
+    container_name: store-2-redis
+    # The catalog cache for this store, on this store's LAN only — the same
+    # role store-1-redis plays for store 1.
+    ports:
+      - "${STORE_2_REDIS_HOST_PORT:-56380}:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - store-2-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
   store-2-backend:
     build: ./backend
     container_name: store-2-backend
@@ -234,12 +281,15 @@ services:
       STORE_ID: store-2
       STORE_NAME: ${STORE_2_NAME:-Tienda 2 - Kennedy}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-store}:${POSTGRES_PASSWORD:-store_password}@store-2-postgres:5432/${POSTGRES_DB:-store}
+      REDIS_URL: redis://store-2-redis:6379/0
       PAYMENT_GATEWAY_URL: http://payment-gateway:5000
       PAYMENT_GATEWAY_TIMEOUT_SECONDS: ${PAYMENT_GATEWAY_TIMEOUT_SECONDS:-5}
     ports:
       - "${STORE_2_BACKEND_HOST_PORT:-18001}:8000"
     depends_on:
       store-2-postgres:
+        condition: service_healthy
+      store-2-redis:
         condition: service_healthy
     networks:
       - store-2-net
@@ -386,16 +436,47 @@ services:
           cpus: "2.0"
           memory: 4G
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    environment:
+      # The stores' forwarders never see this: they POST batches to the central
+      # API, which is the only thing that may publish. A worker on head office's
+      # LAN consumes. Plaintext AMQP, sample credentials — a local practice
+      # environment, not a deployment.
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-central}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-central_password}
+    ports:
+      # The management web UI, so the queue can be watched from the browser.
+      - "${RABBITMQ_MGMT_HOST_PORT:-15672}:15672"
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "ping" ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      # Head office's LAN only. Nothing from a store can reach the queue.
+      - central-net
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
   central-api:
     build: ./central-api
     container_name: central-api
     environment:
       CENTRAL_DATABASE_URL: mysql+pymysql://${CENTRAL_MYSQL_USER:-central}:${CENTRAL_MYSQL_PASSWORD:-central_password}@central-mysql:3306/${CENTRAL_MYSQL_DATABASE:-central}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-central}:${RABBITMQ_PASSWORD:-central_password}@rabbitmq:5672/
       TOP_PRODUCTS_LIMIT: ${TOP_PRODUCTS_LIMIT:-10}
     ports:
       - "${CENTRAL_API_HOST_PORT:-18100}:8000"
     depends_on:
       central-mysql:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     networks:
       # Head office's LAN, plus the simulated internet so the stores' forwarders
@@ -407,6 +488,31 @@ services:
         limits:
           cpus: "2.0"
           memory: 2G
+
+  central-ingestion-worker:
+    # The same image as the API, just a different entry point: a consumer that
+    # is the ONLY process allowed to write invoices into MySQL. Reusing one
+    # build keeps head office one codebase, the way the stores reuse one image.
+    build: ./central-api
+    container_name: central-ingestion-worker
+    command: [ "python", "-m", "app.ingestion.worker" ]
+    environment:
+      CENTRAL_DATABASE_URL: mysql+pymysql://${CENTRAL_MYSQL_USER:-central}:${CENTRAL_MYSQL_PASSWORD:-central_password}@central-mysql:3306/${CENTRAL_MYSQL_DATABASE:-central}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-central}:${RABBITMQ_PASSWORD:-central_password}@rabbitmq:5672/
+    depends_on:
+      central-mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      # Head office's LAN only. Unlike the API it does not join the simulated
+      # internet — nothing outside head office needs to reach the consumer.
+      - central-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
 
   central-web:
     build: ./central-web
